@@ -6,7 +6,7 @@ import string
 import random
 from objects import ServMsg, CliMsg
 
-def read_cmd(clients, friend_list, sock_cli, addr_cli, username_cli):
+def read_cmd(clients, friend_list, room_list, room_player, sock_cli, addr_cli, username_cli):
     while True:
         data = sock_cli.recv(65535)
         if len(data) == 0:
@@ -32,6 +32,16 @@ def read_cmd(clients, friend_list, sock_cli, addr_cli, username_cli):
             request_flist(clients, friend_list, sock_cli, username_cli)
         elif cmd == "rm":
             remove_friend(clients, friend_list, dest, sock_cli, username_cli)
+        elif cmd == "mkroom":
+            make_room(clients, room_list, room_player, sock_cli, username_cli)
+        elif cmd == "invroom":
+            invite_room(clients, friend_list, room_list, room_player, dest, sock_cli, username_cli)
+        elif cmd == "joinroom":
+            join_room(clients, room_list, room_player, dest, sock_cli, username_cli)
+        elif cmd == "play":
+            play_room(clients, room_list, room_player, sock_cli, username_cli)
+        elif cmd == "ans":
+            check_ans(clients, room_list, room_player, sock_cli, username_cli, msg)
         elif cmd == "file":
             filemsg = msg.split("|", 2)
             file_msg = filemsg[2]
@@ -48,6 +58,11 @@ def read_cmd(clients, friend_list, sock_cli, addr_cli, username_cli):
 
             send_file(clients, friend_list, dest, sock_cli, username_cli, msg, file_name, file_size, file_data, file_msg)
         
+        print(msg)
+        print(room_list)
+        print(room_player)
+
+
     sock_cli.close()
     print("Connection closed", addr_cli)
 
@@ -55,8 +70,8 @@ def send_broadcast(clients, friend_list, sender_addr_cli, username_cli, msg):
     for key in list(clients.keys()):
         if not (sender_addr_cli[0] == clients[key][1][0] and sender_addr_cli[1] == clients[key][1][1]):
             if (key, username_cli) in friend_list and (username_cli, key) in friend_list:
-            data = pickle.dumps(CliMsg("text", msg))
-            clients[key][0].send(data)
+                data = pickle.dumps(CliMsg("text", msg))
+                clients[key][0].send(data)
    
 def send_msg(clients, friend_list, dest, sender_sock, username_cli, msg):
     #check friend
@@ -144,11 +159,189 @@ def send_file(clients, friend_list, dest, sender_sock, username_cli, msg, file_n
         data = pickle.dumps(CliMsg("text", error_msg))
         sender_sock.send(data)
 
+def make_room(clients, room_list, room_player, sender_sock, username_cli):
+    S = 5
+    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k = S))    
+
+    room_list[code] = [username_cli, sender_sock, 5, 4, 1, 2, 0, -1]
+    room_player[code] = []
+    room_player[code].append([username_cli, sender_sock, 0])
+    msg = "Room created. Code [{}]. Invite you friends !".format(code)
+    data = pickle.dumps(CliMsg("room", msg))
+    sender_sock.send(data)
+
+def invite_room(clients, friend_list, room_list, room_player, dest, sender_sock, username_cli):
+    if (dest, username_cli) in friend_list and (username_cli, dest) in friend_list:
+        sock_cli = clients[dest][0]
+
+        for key in list(room_list.keys()):
+            if room_list[key][0] == username_cli:
+                code = key
+                break
+
+        msg = "<{}>: Join my room with code {} to play with me !".format(username_cli, code)
+        data = pickle.dumps(CliMsg("text", msg))
+        sock_cli.send(data)
+    else:
+        msg = "not friend with {}".format(dest)
+        data = pickle.dumps(CliMsg("text", msg))
+        sender_sock.send(data)
+
+def join_room(clients, room_list,  room_player, dest, sender_sock, username_cli):
+    if (room_list[dest][4] == room_list[dest][3]):
+        msg = "Failed to join, room {} already full".format(dest)
+        data = pickle.dumps(CliMsg("text", msg))
+        sender_sock.send(data)
+    else:
+        room_player[dest].append([username_cli, sender_sock, 0])
+        room_list[dest][4] += 1
+        msg = "Successfully join room {}".format(dest)
+        data = pickle.dumps(CliMsg("room", msg))
+        sender_sock.send(data)
+
+    print(room_list)
+    print(room_player)
+
+def play_room(clients, room_list, room_player, sock_cli, username_cli):
+    found = False
+    for key in list(room_list.keys()):
+        if room_list[key][0] == username_cli:
+            code = key
+            room_list[code][6] = 1
+            generate(code)
+            found = True
+            break
+
+    if found == False:
+        msg = "You are not room master"
+        data = pickle.dumps(CliMsg("text", msg))
+        sock_cli.send(data)
+    
+def generate(code):
+    answer = 0
+    if room_list[code][5] == 2:
+        operator = random.randint(0, 3)
+        a = random.randint(1, 300)
+        b = random.randint(1, 300)
+        c = random.randint(1, 15)
+        d = random.randint(1, 10)
+        if operator == 0:
+            question = "{} + {} = ?".format(a, b)
+            answer = a + b
+        elif operator == 1:
+            question = "{} - {} = ?".format(a, b)
+            answer = a - b
+        elif operator == 2:
+            question = "{} x {} = ?".format(c, d)
+            answer = c * d
+        elif operator == 3:
+            question = "{} / {} = ?".format(a, d)
+            answer = a / d
+            while (a/d != a//d):
+                a = random.randint(1, 300)
+                question = "{} / {} = ?".format(a, d)
+                answer = a / d
+    elif room_list[code][5] == 3:
+        operator  = random.randint(0, 3)
+        a = random.randint(1, 300)
+        b = random.randint(1, 300)
+        c = random.randint(1, 15)
+        d = random.randint(1, 10)
+        if operator == 0:
+            question = "{} + {}".format(a, b)
+            answer = a + b
+        elif operator == 1:
+            question = "{} - {}".format(a, b)
+            answer = a - b
+        elif operator == 2:
+            question = "{} x {}".format(c, d)
+            answer = c * d
+        elif operator == 3:
+            question = "{} / {}".format(a, d)
+            answer = a / d
+            while (a/d != a//d):
+                a = random.randint(1, 300)
+                question = "{} / {}".format(a, d)
+                answer = a / d
+    
+        operator  = random.randint(0, 1)
+        if operator == 0:
+            c = random.randint(1, 300)
+            question = "{} + {} = ?".format(question, c)
+            answer = answer + b
+        elif operator == 1:
+            c = random.randint(1, 300)
+            question = "{} - {} = ?".format(question, c)
+            answer = answer - b
+        
+    ans = int(answer)
+    print(ans)
+    room_list[code][7] = ans
+    
+    msg = "Berapakah hasil {}".format(question)
+    data = pickle.dumps(CliMsg("play", msg))
+    for player in room_player[code]:
+        print(player[0])
+        player[1].sendall(data)
+
+def check_ans(clients, room_list, room_player, sock_cli, username_cli, msg):
+    isWin = False
+    code = ''
+    found = False
+    for key in list(room_player.keys()):
+        if found == True:
+            break
+        for player in room_player[key]:
+            if player[0] == username_cli:
+                code = key
+                found = True
+                break
+
+    ans = int(msg)
+    print("ans = {}".format(room_list[code][7]))
+    
+    if(ans == room_list[code][7]):
+        msg = "Jawaban Benar!"
+        data = pickle.dumps(CliMsg("play", msg))
+        sock_cli.send(data)
+
+        for player in room_player[code]:
+            if player[0] == username_cli:
+                player[2] += 1
+                if player[2] == room_list[code][2]:
+                    isWin = True
+                break
+
+        if isWin == True:
+            msg = "{} Menang !".format(username_cli)
+            data = pickle.dumps(CliMsg("win", msg))
+            for player in room_player[code]:
+                player[2] = 0
+                player[1].send(data)
+        else:
+            msg = "{} berhasil menjawab dengan benar !".format(username_cli)
+            data = pickle.dumps(CliMsg("play", msg))
+            for player in room_player[code]:
+                player[1].send(data)
+            generate(code)
+    else:
+        msg = "Jawaban Salah!"
+        data = pickle.dumps(CliMsg("play", msg))
+        sock_cli.send(data)
+
 sock_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 sock_server.bind(("0.0.0.0", 6666))
 sock_server.listen(5)
 
 clients = {}
+# room_list[kode] = {username masternya, socket_master, point menang(integer),maks orang(integer), jumlah orng yg ad(int),
+#banyak variabel(integer), LAGI PLAY/LAGI NUNGGU(boolean), CURRENT ANSWER(integer)}
+room_list = {}
+
+#room_player[kode] = {(username pemain, socket pemain, point brp, ),  (), ()}
+#player = [username pemain, socket pemain, point brp]
+room_player = {}
+
 friend_list = set()
 
 while True:
@@ -157,7 +350,7 @@ while True:
     username_cli = sock_cli.recv(65535).decode("utf-8")
     print(username_cli, " joined")
 
-    thread_cli = threading.Thread(target=read_cmd, args=(clients, friend_list, sock_cli, addr_cli, username_cli))
+    thread_cli = threading.Thread(target=read_cmd, args=(clients, friend_list, room_list, room_player, sock_cli, addr_cli, username_cli))
     thread_cli.start() 
 
     clients[username_cli] = (sock_cli, addr_cli, thread_cli)
